@@ -26,7 +26,6 @@ var (
 	host        = flag.String("host", "localhost", "host to listen on")
 	port        = flag.Uint("port", 8080, "port to listen on")
 	storageDir  = flag.String("storage-dir", "", "Root directory to store log data")
-	initialize  = flag.Bool("initialize", false, "Set when creating a new log to initialize the structure")
 	purlType    = flag.String("purl-type", "", "Restricts pURLs to be of a specific type")
 	privKeyFile = flag.String("private-key", "", "Location of private key file. If unset, uses the contents of the LOG_PRIVATE_KEY environment variable.")
 	pubKeyFile  = flag.String("public-key", "", "Location of public key file. If unset, uses the contents of the LOG_PUBLIC_KEY environment variable.")
@@ -66,21 +65,20 @@ func main() {
 	v := getVerifierOrDie()
 
 	// Create the Tessera POSIX storage, using the directory from the --storage-dir flag
-	driver, err := posix.New(ctx,
-		*storageDir,
-		*initialize,
-		tessera.WithCheckpointSigner(s),
-		tessera.WithCheckpointInterval(time.Second),
-		tessera.WithBatching(256, time.Second))
+	driver, err := posix.New(ctx, *storageDir)
 	if err != nil {
-		log.Fatalf("failed to construct storage: %v", err)
+		log.Fatalf("failed to construct driver: %v", err)
 	}
-
-	// Create function to handle adding entries
-	addFn, r, err := tessera.NewAppender(driver, tessera.InMemoryDedupe(256))
+	appender, r, err := tessera.NewAppender(ctx,
+		driver,
+		tessera.WithCheckpointSigner(s),
+		tessera.WithCheckpointInterval(5*time.Second),
+		tessera.WithBatching(256, time.Second),
+		tessera.WithAppendDeduplication(tessera.InMemoryDedupe(256)))
 	if err != nil {
 		log.Fatalf("failed to create appender: %v", err)
 	}
+	addFn := appender.Add
 	tileFetcher := r.ReadTile
 	await := tessera.NewIntegrationAwaiter(ctx, r.ReadCheckpoint, time.Second)
 
@@ -162,7 +160,12 @@ func main() {
 	http.Handle("GET /checkpoint", addCacheHeaders("no-cache", fs))
 	http.Handle("GET /tile/", addCacheHeaders("max-age=31536000, immutable", fs))
 
-	if err := http.ListenAndServe(fmt.Sprintf("%s:%d", *host, *port), http.DefaultServeMux); err != nil {
+	address := fmt.Sprintf("%s:%d", *host, *port)
+	fmt.Printf("Environment variables useful for accessing this log:\n"+
+		"export WRITE_URL=http://localhost%s/ \n"+
+		"export READ_URL=http://localhost%s/ \n", address, address)
+
+	if err := http.ListenAndServe(address, http.DefaultServeMux); err != nil {
 		log.Fatalf("ListenAndServe: %v", err)
 	}
 }
