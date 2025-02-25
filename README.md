@@ -60,10 +60,46 @@ binarytransparency.log/example+5de0f997+AcPfp2roeTxqSqmPdDkA9rIAd0pe3C5Je6Rze2Sq
 Then, start the log:
 
 ```shell
-go run ./cmd/bt-log --storage-dir=/tmp/mylog --private-key=private.key --public-key=public.key --purl-type=pypi --initialize
+go run ./cmd/bt-log --storage-dir=/tmp/mylog --private-key=private.key --public-key=public.key --purl-type=pypi
 ```
 
 Replace `--purl-type` with the name of the package registry.
 
-For future runs, **you must remove `--initialize`**. Otherwise, the log
-will become corrupted.
+### Witnessing
+
+To prevent split-view attacks, where a log serves different views to different callers,
+checkpoints must be witnessed, where an independent auditor verifies a consistency proof
+that the log remains append-only and returns a cosignature over the checkpoint.
+
+This repository contains a lightweight witness that implements the
+[C2SP tlog-witness spec](https://github.com/C2SP/C2SP/blob/main/tlog-witness.md).
+
+To initialize the witness, create a SQLite database and a signing key. The database will store
+a log's verification key and origin, and the last size and tree hash the witness verified. 
+
+The commands below will create the database, initialize the database, add a row with the
+log's verification key, generate a witness signing key, and start the witness.
+
+```
+sqlite3 -line witness.db '.database'
+go run ./cmd/witness-add-key --database-path witness.db --public-key public.key
+
+go run ./cmd/gen-key --origin=witness.log/example --private-key-path witness-private.key --public-key-path witness-public.key       
+go run ./cmd/witness-server --database-path witness.db --private-key witness-private.key --public-key witness-public.key
+```
+
+Then, start the log. The log will verify cosigned checkpoints using the provided witness verification key.
+
+```
+go run ./cmd/bt-log --storage-dir=/tmp/mylog --private-key=private.key --public-key=public.key --purl-type=pypi --witness-url="http://localhost:8081" --witness-public-key=witness-public.key
+```
+
+The checkpoint in the log's response will contain a co-signed checkpoint:
+
+```
+curl -XPOST http://localhost:8080/add -d "{\"purl\":\"pkg:pypi/pkgname@1.2.3?digest=sha256:5141b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be92\"}" -o bundle
+
+cat bundle | jq -r .checkpoint | base64 -d
+```
+
+The signed checkpoint will have two signatures, one from the log and one from the witness.

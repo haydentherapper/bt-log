@@ -11,8 +11,8 @@ import (
 
 var (
 	origin      = flag.String("origin", "", "Origin of checkpoint, e.g. example.com/log")
-	privKeyPath = flag.String("priv-key-path", "private.key", "Output path for private key")
-	pubKeyPath  = flag.String("pub-key-path", "public.key", "Output path for public key")
+	privKeyPath = flag.String("private-key-path", "private.key", "Output path for private key")
+	pubKeyPath  = flag.String("public-key-path", "public.key", "Output path for public key")
 )
 
 func main() {

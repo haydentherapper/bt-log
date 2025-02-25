@@ -8,27 +8,30 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
-	"golang.org/x/mod/sumdb/note"
-
 	"github.com/haydentherapper/bt-log/pkg/purl"
+	iwitness "github.com/haydentherapper/bt-log/pkg/witness"
 	tlog "github.com/transparency-dev/formats/log"
 	"github.com/transparency-dev/merkle/proof"
 	"github.com/transparency-dev/merkle/rfc6962"
 	tessera "github.com/transparency-dev/trillian-tessera"
 	"github.com/transparency-dev/trillian-tessera/client"
 	"github.com/transparency-dev/trillian-tessera/storage/posix"
+	"golang.org/x/mod/sumdb/note"
 )
 
 var (
-	host        = flag.String("host", "localhost", "host to listen on")
-	port        = flag.Uint("port", 8080, "port to listen on")
-	storageDir  = flag.String("storage-dir", "", "Root directory to store log data")
-	purlType    = flag.String("purl-type", "", "Restricts pURLs to be of a specific type")
-	privKeyFile = flag.String("private-key", "", "Location of private key file. If unset, uses the contents of the LOG_PRIVATE_KEY environment variable.")
-	pubKeyFile  = flag.String("public-key", "", "Location of public key file. If unset, uses the contents of the LOG_PUBLIC_KEY environment variable.")
+	host              = flag.String("host", "localhost", "host to listen on")
+	port              = flag.Uint("port", 8080, "port to listen on")
+	storageDir        = flag.String("storage-dir", "", "Root directory to store log data")
+	purlType          = flag.String("purl-type", "", "Restricts pURLs to be of a specific type")
+	privKeyFile       = flag.String("private-key", "", "Location of private key file")
+	pubKeyFile        = flag.String("public-key", "", "Location of public key file")
+	witnessUrl        = flag.String("witness-url", "", "Optional witness to cosign checkpoint")
+	witnessPubKeyFile = flag.String("witness-public-key", "", "Optional witness public key location to verify cosignatures")
 )
 
 func addCacheHeaders(value string, fs http.Handler) http.HandlerFunc {
@@ -39,7 +42,7 @@ func addCacheHeaders(value string, fs http.Handler) http.HandlerFunc {
 }
 
 type LogEntry struct {
-	PURL string `json:"purl"` // e.g. pkg:pypi/pkgname@1.2.3?digest=0102030405
+	PURL string `json:"purl"` // e.g. pkg:pypi/pkgname@1.2.3?digest=sha256:5141b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be92
 }
 
 type LogEntryResponse struct {
@@ -57,12 +60,55 @@ func main() {
 	if *purlType == "" {
 		log.Fatalf("--purl-type must be set")
 	}
+	if *privKeyFile == "" {
+		log.Fatalf("--private-key must be set")
+	}
+	if *pubKeyFile == "" {
+		log.Fatalf("--public-key must be set")
+	}
+	if (*witnessUrl != "" && *witnessPubKeyFile == "") ||
+		(*witnessUrl == "" && *witnessPubKeyFile != "") {
+		log.Fatalf("--witness-url and --witness-public-key must both be set")
+	}
 
 	ctx := context.Background()
 
-	// Gather the info needed for reading/writing checkpoints
-	s := getSignerOrDie()
-	v := getVerifierOrDie()
+	// Create NoteSigner/Verifier for signing/verifying checkpoints
+	privKey, err := os.ReadFile(*privKeyFile)
+	if err != nil {
+		log.Fatalf("failed to read private key file for %s: %v", *privKeyFile, err)
+	}
+	s, err := note.NewSigner(string(privKey))
+	if err != nil {
+		log.Fatalf("failed to read signer %s: %v", *privKeyFile, err)
+	}
+
+	pubKey, err := os.ReadFile(*pubKeyFile)
+	if err != nil {
+		log.Fatalf("failed to read public key file for %s: %v", *pubKeyFile, err)
+	}
+	v, err := note.NewVerifier(string(pubKey))
+	if err != nil {
+		log.Fatalf("failed to read verifier %s: %v", *pubKeyFile, err)
+	}
+
+	// Create witness
+	var witness *tessera.Witness
+	if *witnessPubKeyFile != "" && *witnessUrl != "" {
+		witnessPubKey, err := os.ReadFile(*witnessPubKeyFile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		wUrl, err := url.Parse(*witnessUrl)
+		if err != nil {
+			log.Fatal(err)
+		}
+		wit, err := tessera.NewWitness(string(witnessPubKey), wUrl)
+		if err != nil {
+			log.Fatalf("error creating witness: %v", err)
+		}
+		witness = &wit
+	}
 
 	// Create the Tessera POSIX storage, using the directory from the --storage-dir flag
 	driver, err := posix.New(ctx, *storageDir)
@@ -70,11 +116,11 @@ func main() {
 		log.Fatalf("failed to construct driver: %v", err)
 	}
 	appender, r, err := tessera.NewAppender(ctx,
-		driver,
-		tessera.WithCheckpointSigner(s),
-		tessera.WithCheckpointInterval(5*time.Second),
-		tessera.WithBatching(256, time.Second),
-		tessera.WithAppendDeduplication(tessera.InMemoryDedupe(256)))
+		driver, tessera.NewAppendOptions().
+			WithCheckpointSigner(s).
+			WithCheckpointInterval(5*time.Second).
+			WithBatching(256, time.Second).
+			WithAntispam(256, nil))
 	if err != nil {
 		log.Fatalf("failed to create appender: %v", err)
 	}
@@ -139,9 +185,34 @@ func main() {
 
 		resp := LogEntryResponse{
 			Index:          idx,
-			Checkpoint:     rawCp,
 			InclusionProof: inclusionProof,
 		}
+
+		// Co-sign the checkpoint
+		// This is a hacky solution to demonstrate cosignatures. It does not properly handle
+		// concurrent requests and does not track the last witnessed size, meaning it must make
+		// two requests to the witness.
+		// This will be removed in the near future when Trillian-Tessera adds support for cosigning.
+		if witness != nil {
+			wg := iwitness.NewWitnessGateway(tessera.NewWitnessGroup(1, witness), http.DefaultClient, func(ctx context.Context, from, to uint64) [][]byte {
+				proof, err := pb.ConsistencyProof(ctx, from, to)
+				if err != nil {
+					log.Fatal(err)
+				}
+				return proof
+			})
+			cosignedCp, err := wg.Witness(ctx, rawCp)
+			if err != nil {
+				log.Printf("error witnessing: %v", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(err.Error()))
+				return
+			}
+			resp.Checkpoint = cosignedCp
+		} else {
+			resp.Checkpoint = rawCp
+		}
+
 		jResp, err := json.Marshal(resp)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -155,69 +226,14 @@ func main() {
 	})
 
 	// Proxy all GET requests to the filesystem as a lightweight file server.
-	// This makes it easier to test this implementation from another machine.
 	fs := http.FileServer(http.Dir(*storageDir))
 	http.Handle("GET /checkpoint", addCacheHeaders("no-cache", fs))
 	http.Handle("GET /tile/", addCacheHeaders("max-age=31536000, immutable", fs))
 
 	address := fmt.Sprintf("%s:%d", *host, *port)
-	fmt.Printf("Environment variables useful for accessing this log:\n"+
-		"export WRITE_URL=http://localhost%s/ \n"+
-		"export READ_URL=http://localhost%s/ \n", address, address)
+	fmt.Printf("Server running at %s\n", address)
 
 	if err := http.ListenAndServe(address, http.DefaultServeMux); err != nil {
 		log.Fatalf("ListenAndServe: %v", err)
 	}
-}
-
-// Read log private key from file or environment variable
-func getSignerOrDie() note.Signer {
-	var privKey string
-	var err error
-	if len(*privKeyFile) > 0 {
-		privKey, err = getKeyFile(*privKeyFile)
-		if err != nil {
-			log.Fatalf("unable to read private key: %v", err)
-		}
-	} else {
-		privKey = os.Getenv("LOG_PRIVATE_KEY")
-		if len(privKey) == 0 {
-			log.Fatalf("provide private key file path using --private-key or set LOG_PRIVATE_KEY env var")
-		}
-	}
-	s, err := note.NewSigner(privKey)
-	if err != nil {
-		log.Fatalf("failed to initialize signer: %v", err)
-	}
-	return s
-}
-
-// Read log public key from file or environment variable
-func getVerifierOrDie() note.Verifier {
-	var pubKey string
-	var err error
-	if len(*pubKeyFile) > 0 {
-		pubKey, err = getKeyFile(*pubKeyFile)
-		if err != nil {
-			log.Fatalf("unable to read public key: %v", err)
-		}
-	} else {
-		pubKey = os.Getenv("LOG_PUBLIC_KEY")
-		if len(pubKey) == 0 {
-			log.Fatalf("provide public key file path using --public-key or set LOG_PUBLIC_KEY env var")
-		}
-	}
-	v, err := note.NewVerifier(pubKey)
-	if err != nil {
-		log.Fatalf("failed to initialize verifier: %v", err)
-	}
-	return v
-}
-
-func getKeyFile(path string) (string, error) {
-	k, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("failed to read key file: %w", err)
-	}
-	return string(k), nil
 }

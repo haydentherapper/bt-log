@@ -1,3 +1,4 @@
 .DS_Store
-private.key
-public.key
+*.key
+witness.db
+bundle
