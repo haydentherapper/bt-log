@@ -8,11 +8,9 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"time"
 
-	"golang.org/x/mod/sumdb/note"
-
+	"github.com/haydentherapper/bt-log/pkg/note"
 	"github.com/haydentherapper/bt-log/pkg/purl"
 	tlog "github.com/transparency-dev/formats/log"
 	"github.com/transparency-dev/merkle/proof"
@@ -60,9 +58,15 @@ func main() {
 
 	ctx := context.Background()
 
-	// Gather the info needed for reading/writing checkpoints
-	s := getSignerOrDie()
-	v := getVerifierOrDie()
+	// Create NoteSigner/Verifier for signing/verifying checkpoints
+	s, err := note.GetNoteSigner(*privKeyFile, "LOG_PRIVATE_KEY")
+	if err != nil {
+		log.Fatal(err)
+	}
+	v, err := note.GetNoteVerifier(*pubKeyFile, "LOG_PUBLIC_KEY")
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Create the Tessera POSIX storage, using the directory from the --storage-dir flag
 	driver, err := posix.New(ctx, *storageDir)
@@ -168,56 +172,4 @@ func main() {
 	if err := http.ListenAndServe(address, http.DefaultServeMux); err != nil {
 		log.Fatalf("ListenAndServe: %v", err)
 	}
-}
-
-// Read log private key from file or environment variable
-func getSignerOrDie() note.Signer {
-	var privKey string
-	var err error
-	if len(*privKeyFile) > 0 {
-		privKey, err = getKeyFile(*privKeyFile)
-		if err != nil {
-			log.Fatalf("unable to read private key: %v", err)
-		}
-	} else {
-		privKey = os.Getenv("LOG_PRIVATE_KEY")
-		if len(privKey) == 0 {
-			log.Fatalf("provide private key file path using --private-key or set LOG_PRIVATE_KEY env var")
-		}
-	}
-	s, err := note.NewSigner(privKey)
-	if err != nil {
-		log.Fatalf("failed to initialize signer: %v", err)
-	}
-	return s
-}
-
-// Read log public key from file or environment variable
-func getVerifierOrDie() note.Verifier {
-	var pubKey string
-	var err error
-	if len(*pubKeyFile) > 0 {
-		pubKey, err = getKeyFile(*pubKeyFile)
-		if err != nil {
-			log.Fatalf("unable to read public key: %v", err)
-		}
-	} else {
-		pubKey = os.Getenv("LOG_PUBLIC_KEY")
-		if len(pubKey) == 0 {
-			log.Fatalf("provide public key file path using --public-key or set LOG_PUBLIC_KEY env var")
-		}
-	}
-	v, err := note.NewVerifier(pubKey)
-	if err != nil {
-		log.Fatalf("failed to initialize verifier: %v", err)
-	}
-	return v
-}
-
-func getKeyFile(path string) (string, error) {
-	k, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("failed to read key file: %w", err)
-	}
-	return string(k), nil
 }
