@@ -8,7 +8,7 @@ require (
 	github.com/transparency-dev/formats v0.0.0-20240826204810-ad21d25a1c7f
 	github.com/transparency-dev/merkle v0.0.2
 	github.com/transparency-dev/trillian-tessera v0.1.1-0.20250303204647-53c7e68c5269
-	golang.org/x/mod v0.23.0
+	golang.org/x/mod v0.24.0
 )
 
 require (
