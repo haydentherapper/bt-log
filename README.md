@@ -60,7 +60,7 @@ binarytransparency.log/example+5de0f997+AcPfp2roeTxqSqmPdDkA9rIAd0pe3C5Je6Rze2Sq
 Then, start the log:
 
 ```shell
-go run ./cmd/bt-log --storage-dir=/tmp/mylog --private-key=private.key --public-key=public.key --purl-type=pypi
+go run ./cmd/bt-log --storage-dir=/tmp/bt-log --private-key=private.key --public-key=public.key --purl-type=pypi
 ```
 
 Replace `--purl-type` with the name of the package registry.
@@ -77,21 +77,23 @@ This repository contains a lightweight witness that implements the
 To initialize the witness, create a SQLite database and a signing key. The database will store
 a log's verification key and origin, and the last size and tree hash the witness verified. 
 
-The commands below will create the database, initialize the database, add a row with the
+The commands below will initialize the log signing key, create the database, initialize the database, add a row with the
 log's verification key, generate a witness signing key, and start the witness.
 
 ```
+go run ./cmd/gen-key --origin=binarytransparency.log/example
+
 sqlite3 -line witness.db '.database'
 go run ./cmd/witness-add-key --database-path witness.db --public-key public.key
 
-go run ./cmd/gen-key --origin=witness.log/example --private-key-path witness-private.key --public-key-path witness-public.key       
+go run ./cmd/gen-key --origin=witness.log/example --private-key-path witness-private.key --public-key-path witness-public.key
 go run ./cmd/witness-server --database-path witness.db --private-key witness-private.key --public-key witness-public.key
 ```
 
 Then, start the log. The log will verify cosigned checkpoints using the provided witness verification key.
 
 ```
-go run ./cmd/bt-log --storage-dir=/tmp/mylog --private-key=private.key --public-key=public.key --purl-type=pypi --witness-url="http://localhost:8081" --witness-public-key=witness-public.key
+go run ./cmd/bt-log --storage-dir=/tmp/bt-log --private-key=private.key --public-key=public.key --purl-type=pypi --witness-url="http://localhost:8081" --witness-public-key=witness-public.key
 ```
 
 The checkpoint in the log's response will contain a co-signed checkpoint:

@@ -1,0 +1,52 @@
+name: End-to-End Testing
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5.3.0
+        with:
+          go-version-file: go.mod
+
+      - name: Initialize log
+        run: |
+          go run ./cmd/gen-key --origin=binarytransparency.log/example
+      
+      - name: Initialize witness
+        run: |
+          sqlite3 -line witness.db '.database'
+          go run ./cmd/witness-add-key --database-path witness.db --public-key public.key
+
+      - name: Run witness
+        run: |
+          go run ./cmd/gen-key --origin=witness.log/example --private-key-path witness-private.key --public-key-path witness-public.key
+          go run ./cmd/witness-server --database-path witness.db --private-key witness-private.key --public-key witness-public.key &
+
+      - name: Run log
+        run: |
+          go run ./cmd/bt-log --storage-dir=/tmp/bt-log --private-key=private.key --public-key=public.key --purl-type=pypi --witness-url="http://localhost:8081" --witness-public-key=witness-public.key &
+
+      - name: Verify upload and output
+        run: |
+          curl -XPOST http://localhost:8080/add -d "{\"purl\":\"pkg:pypi/pkgname@1.2.3?digest=sha256:5141b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be92\"}" -o bundle
+          cat bundle; echo
+          cat bundle| jq -r .checkpoint | base64 -d; echo
+          index=$(cat bundle | jq -r .index)
+          if [ $index -ne 0 ]; then exit 1; else true; fi
