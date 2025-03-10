@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/haydentherapper/bt-log/pkg/purl"
-	iwitness "github.com/haydentherapper/bt-log/pkg/witness"
 	tlog "github.com/transparency-dev/formats/log"
 	"github.com/transparency-dev/merkle/proof"
 	"github.com/transparency-dev/merkle/rfc6962"
@@ -115,12 +114,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to construct driver: %v", err)
 	}
-	appender, r, err := tessera.NewAppender(ctx,
-		driver, tessera.NewAppendOptions().
-			WithCheckpointSigner(s).
-			WithCheckpointInterval(5*time.Second).
-			WithBatching(256, time.Second).
-			WithAntispam(256, nil))
+
+	opts := tessera.NewAppendOptions().
+		WithCheckpointSigner(s).
+		WithCheckpointInterval(5*time.Second).
+		WithBatching(256, time.Second).
+		WithAntispam(256, nil)
+	if witness != nil {
+		opts = opts.WithWitnesses(tessera.NewWitnessGroup(1, witness))
+	}
+	appender, r, err := tessera.NewAppender(ctx, driver, opts)
 	if err != nil {
 		log.Fatalf("failed to create appender: %v", err)
 	}
@@ -186,31 +189,7 @@ func main() {
 		resp := LogEntryResponse{
 			Index:          idx,
 			InclusionProof: inclusionProof,
-		}
-
-		// Co-sign the checkpoint
-		// This is a hacky solution to demonstrate cosignatures. It does not properly handle
-		// concurrent requests and does not track the last witnessed size, meaning it must make
-		// two requests to the witness.
-		// This will be removed in the near future when Trillian-Tessera adds support for cosigning.
-		if witness != nil {
-			wg := iwitness.NewWitnessGateway(tessera.NewWitnessGroup(1, witness), http.DefaultClient, func(ctx context.Context, from, to uint64) [][]byte {
-				proof, err := pb.ConsistencyProof(ctx, from, to)
-				if err != nil {
-					log.Fatal(err)
-				}
-				return proof
-			})
-			cosignedCp, err := wg.Witness(ctx, rawCp)
-			if err != nil {
-				log.Printf("error witnessing: %v", err)
-				w.WriteHeader(http.StatusInternalServerError)
-				_, _ = w.Write([]byte(err.Error()))
-				return
-			}
-			resp.Checkpoint = cosignedCp
-		} else {
-			resp.Checkpoint = rawCp
+			Checkpoint:     rawCp,
 		}
 
 		jResp, err := json.Marshal(resp)

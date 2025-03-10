@@ -41,8 +41,8 @@ github.com/transparency-dev/formats v0.0.0-20240826204810-ad21d25a1c7f h1:FiuOzJ
 github.com/transparency-dev/formats v0.0.0-20240826204810-ad21d25a1c7f/go.mod h1:Iso3Bhsif9xUGQdI3TF3IiM3F3IKfNHG4LnDgbk+1zg=
 github.com/transparency-dev/merkle v0.0.2 h1:Q9nBoQcZcgPamMkGn7ghV8XiTZ/kRxn1yCG81+twTK4=
 github.com/transparency-dev/merkle v0.0.2/go.mod h1:pqSy+OXefQ1EDUVmAJ8MUhHB9TXGuzVAT58PqBoHz1A=
-github.com/transparency-dev/trillian-tessera v0.1.1-0.20250303204647-53c7e68c5269 h1:8zKdwQm0Lizvckav148EWMyA9uPBwbEZv/fGFmBmNIs=
-github.com/transparency-dev/trillian-tessera v0.1.1-0.20250303204647-53c7e68c5269/go.mod h1:V4bWfUcIyTFufyEAez/JZg7V61+D1m+ZFpNGvQvC9GM=
+github.com/transparency-dev/trillian-tessera v0.1.1-0.20250310204212-4947c5becd8b h1:/7+HvWBKJQG2t58dp/OWvstRQAPuYxzxiWrMITvs0bs=
+github.com/transparency-dev/trillian-tessera v0.1.1-0.20250310204212-4947c5becd8b/go.mod h1:V4bWfUcIyTFufyEAez/JZg7V61+D1m+ZFpNGvQvC9GM=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
 golang.org/x/crypto v0.35.0 h1:b15kiHdrGCHrP6LvwaQ3c03kgNhhiMgvlhxHQhmg2Xs=
 golang.org/x/crypto v0.35.0/go.mod h1:dy7dXNW32cAb/6/PRuTNsix8T+vJAqvuIy5Bli/x0YQ=
