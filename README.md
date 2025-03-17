@@ -105,3 +105,9 @@ cat bundle | jq -r .checkpoint | base64 -d
 ```
 
 The signed checkpoint will have two signatures, one from the log and one from the witness.
+
+# Upcoming Work
+
+- [ ] Change pURL to a custom representation
+- [ ] Lightweight monitor to demonstrate verifying ID-hash mapping is always 1-1 and alerting on publication
+- [ ] Add tests
