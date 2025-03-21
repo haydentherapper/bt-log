@@ -123,7 +123,7 @@ func main() {
 	if witness != nil {
 		opts = opts.WithWitnesses(tessera.NewWitnessGroup(1, witness))
 	}
-	appender, r, err := tessera.NewAppender(ctx, driver, opts)
+	appender, shutdown, r, err := tessera.NewAppender(ctx, driver, opts)
 	if err != nil {
 		log.Fatalf("failed to create appender: %v", err)
 	}
@@ -213,6 +213,9 @@ func main() {
 	fmt.Printf("Server running at %s\n", address)
 
 	if err := http.ListenAndServe(address, http.DefaultServeMux); err != nil {
+		if err := shutdown(ctx); err != nil {
+			log.Fatal(err)
+		}
 		log.Fatalf("ListenAndServe: %v", err)
 	}
 }

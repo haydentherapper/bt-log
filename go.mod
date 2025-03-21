@@ -7,15 +7,17 @@ require (
 	github.com/package-url/packageurl-go v0.1.3
 	github.com/transparency-dev/formats v0.0.0-20240826204810-ad21d25a1c7f
 	github.com/transparency-dev/merkle v0.0.2
-	github.com/transparency-dev/trillian-tessera v0.1.1-0.20250310204212-4947c5becd8b
+	github.com/transparency-dev/trillian-tessera v0.1.1
 	golang.org/x/mod v0.24.0
 )
 
 require (
+	github.com/avast/retry-go/v4 v4.6.1 // indirect
 	github.com/globocom/go-buffer v1.2.2 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
-	golang.org/x/crypto v0.35.0 // indirect
+	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/exp v0.0.0-20240325151524-a685a6edb6d8 // indirect
+	golang.org/x/sync v0.12.0 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 )
