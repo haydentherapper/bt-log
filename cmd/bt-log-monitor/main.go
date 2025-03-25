@@ -41,8 +41,6 @@ var (
 	purlVersionRegex   = flag.String("purl-version-regex", "", "Regex to match pURL version. Must set all pURL regex if set")
 )
 
-// TODO: Switch to slog for matched entry output
-// TODO: Transform pURL to entry, request entry from registry, compare hash
 func main() {
 	flag.Parse()
 
