@@ -114,6 +114,6 @@ The signed checkpoint will have two signatures, one from the log and one from th
   - [x] Regex to match entries
   - [x] Use slog for output
   - [ ] Transform pURL to entry, request entry from registry, compare hash
-  - [ ] Add e2e to GHA script
+  - [x] Add e2e to GHA script
 - [ ] Add unit tests
 - [ ] Containerize for e2e tests

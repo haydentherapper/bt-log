@@ -46,7 +46,14 @@ jobs:
       - name: Verify upload and output
         run: |
           curl -XPOST http://localhost:8080/add -d "{\"purl\":\"pkg:pypi/pkgname@1.2.3?digest=sha256:5141b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be92\"}" -o bundle
-          cat bundle; echo
-          cat bundle| jq -r .checkpoint | base64 -d; echo
+          cat bundle
+          cat bundle| jq -r .checkpoint | base64 -d
           index=$(cat bundle | jq -r .index)
           if [ $index -ne 0 ]; then exit 1; else true; fi
+
+      - name: Run monitor
+        run: |
+          go run ./cmd/bt-log-monitor --log-url http://localhost:8080 --public-key public.key --storage-dir /tmp/monitor --once=true --purl-version-regex="1.2.3" --purl-type-regex="pypi" --purl-name-regex="pkgname" --purl-namespace-regex=".*" --json-logging 2>log-output
+          cat log-output
+          purl=$(cat log-output | jq -r .purl)
+          if [[ "$purl" != "pkg:pypi/pkgname@1.2.3?digest=sha256%3A5141b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be92" ]]; then exit 1; else true; fi
