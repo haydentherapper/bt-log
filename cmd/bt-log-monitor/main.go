@@ -9,7 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -35,23 +35,43 @@ var (
 	once               = flag.Bool("once", true, "Whether to run in a loop or not")
 	frequency          = flag.Duration("frequency", time.Minute, "How often to run the monitor")
 	debug              = flag.Bool("debug", false, "Print additional information")
+	jsonLogging        = flag.Bool("json-logging", false, "Output log messages as JSON")
 	purlTypeRegex      = flag.String("purl-type-regex", "", "Regex to match pURL type. Must set all pURL regex if set")
 	purlNamespaceRegex = flag.String("purl-namespace-regex", "", "Regex to match pURL namespace. Must set all pURL regex if set")
 	purlNameRegex      = flag.String("purl-name-regex", "", "Regex to match pURL name. Must set all pURL regex if set")
 	purlVersionRegex   = flag.String("purl-version-regex", "", "Regex to match pURL version. Must set all pURL regex if set")
 )
 
+func errAttr(err error) slog.Attr {
+	return slog.Any("error", err)
+}
+
 func main() {
 	flag.Parse()
 
+	level := slog.LevelInfo
+	if *debug {
+		level = slog.LevelDebug
+		slog.SetLogLoggerLevel(level)
+	}
+	if *jsonLogging {
+		logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+			Level: level,
+		}))
+		slog.SetDefault(logger)
+	}
+
 	if *logURL == "" {
-		log.Fatal("--log-url must be set")
+		slog.Error("--log-url must be set")
+		os.Exit(1)
 	}
 	if *pubKeyPath == "" {
-		log.Fatal("--public-key must be set")
+		slog.Error("--public-key must be set")
+		os.Exit(1)
 	}
 	if *storageDir == "" {
-		log.Fatal("--storage-dir must be set")
+		slog.Error("--storage-dir must be set")
+		os.Exit(1)
 	}
 	regexMatch := false
 	if *purlTypeRegex != "" && *purlNamespaceRegex != "" && *purlNameRegex != "" && *purlVersionRegex != "" {
@@ -68,26 +88,26 @@ func main() {
 	for {
 		lURL, err := url.Parse(*logURL)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error parsing log URL: %v", err)
+			slog.Error("error parsing log URL", errAttr(err))
 			return
 		}
 
 		// Initialize client to fetch latest checkpoint and entry bundles
 		logFetcher, err := client.NewHTTPFetcher(lURL, http.DefaultClient)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error creating log HTTP client: %v", err)
+			slog.Error("error creating log HTTP client", errAttr(err))
 			return
 		}
 
 		// Create checkpoint verifier using log public key
 		pubKey, err := os.ReadFile(*pubKeyPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to read public key file %s: %v", *pubKeyPath, err)
+			slog.Error("failed to read public key file", "file", *pubKeyPath, errAttr(err))
 			return
 		}
 		v, err := note.NewVerifier(string(pubKey))
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to initialize checkpoint verifier for %s: %v", *pubKeyPath, err)
+			slog.Error("failed to initialize checkpoint verifier", "file", *pubKeyPath, errAttr(err))
 			return
 		}
 
@@ -100,7 +120,7 @@ func main() {
 			if errors.Is(err, os.ErrNotExist) {
 				first = true
 			} else {
-				fmt.Fprintf(os.Stderr, "failed to read previous checkpoint: %v", err)
+				slog.Error("failed to read previous checkpoint", errAttr(err))
 				return
 			}
 		}
@@ -120,29 +140,29 @@ func main() {
 		} else {
 			previousCP, _, _, err = tlog.ParseCheckpoint(previousCPBytes, v.Name(), v)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "failed to verify previous checkpoint: %v", err)
+				slog.Error("failed to verify previous checkpoint", errAttr(err))
 				return
 			}
 			f, err := os.Open(idHashMapPath)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "error opening map file: %v", err)
+				slog.Error("error opening map file", errAttr(err))
 				return
 			}
 			defer f.Close()
 			dec := gob.NewDecoder(bufio.NewReader(f))
 			if err := dec.Decode(&idHashMap); err != nil {
-				fmt.Fprintf(os.Stderr, "error decoding map from disk: %v", err)
+				slog.Error("error decoding map from disk", errAttr(err))
 				return
 			}
 		}
 		latestCPBytes, err := logFetcher.ReadCheckpoint(context.Background())
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error reading latest log checkpoint: %v", err)
+			slog.Error("error reading latest log checkpoint", errAttr(err))
 			return
 		}
 		latestCP, _, _, err := tlog.ParseCheckpoint(latestCPBytes, v.Name(), v)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to verify latest checkpoint: %v", err)
+			slog.Error("failed to verify latest checkpoint", errAttr(err))
 			return
 		}
 
@@ -150,18 +170,18 @@ func main() {
 		// It's only used for building inclusion proofs, which aren't needed here.
 		pb, err := client.NewProofBuilder(context.Background(), *latestCP, logFetcher.ReadTile)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error creating proof builder: %v", err)
+			slog.Error("error creating proof builder", errAttr(err))
 			return
 		}
 
 		// Verify consistency before requesting new entries
 		consistencyProof, err := pb.ConsistencyProof(context.Background(), previousCP.Size, latestCP.Size)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error constructing consistency proof: %v", err)
+			slog.Error("error constructing consistency proof", errAttr(err))
 			return
 		}
 		if err := proof.VerifyConsistency(rfc6962.DefaultHasher, previousCP.Size, latestCP.Size, consistencyProof, previousCP.Hash, latestCP.Hash); err != nil {
-			fmt.Fprintf(os.Stderr, "error verifying consistency proof: %v", err)
+			slog.Error("error verifying consistency proof", errAttr(err))
 			return
 		}
 
@@ -170,7 +190,7 @@ func main() {
 		for eb := range entryBundles {
 			entries, err := client.GetEntryBundle(context.Background(), logFetcher.ReadEntryBundle, eb.Index, latestCP.Size)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "error fetching entry bundle for tile index %d, log size %d", eb.Index, latestCP.Size)
+				slog.Error("error fetching entry bundle", "tile-index", eb.Index, "log-size", latestCP.Size, errAttr(err))
 				return
 			}
 			// Iterate over each entry in the bundle, which may be from a partial tile
@@ -178,51 +198,51 @@ func main() {
 				// Parse pURL string
 				purl, err := packageurl.FromString(string(e))
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "error parsing pURL %s for tile index %d, log size %d: %v",
-						string(e), eb.Index, latestCP.Size, err)
+					slog.Error("error parsing pURL", "purl", string(e), "tile-index", eb.Index, "log-size", latestCP.Size, errAttr(err))
 					return
 				}
-				// Conditionally log when new entry is found
-				if *debug {
-					fmt.Printf("New entry at tile index %d, log size %d: %s\n", eb.Index, latestCP.Size, purl.String())
-				}
+				slog.Debug("New entry", "purl", purl.String(), "tile-index", eb.Index, "log-size", latestCP.Size)
 
 				// Log if entry matches provided regex
 				if regexMatch {
 					typeMatch, err := regexp.MatchString(*purlTypeRegex, purl.Type)
 					if err != nil {
-						fmt.Fprintf(os.Stderr, "error matching pURL type %s, regex %s, for tile index %d, log size %d: %v",
-							purl.Type, *purlTypeRegex, eb.Index, latestCP.Size, err)
+						slog.Error("error matching pURL", "purl", purl.String(),
+							"matcher", "type", "value", purl.Type, "regex", *purlTypeRegex,
+							"tile-index", eb.Index, "log-size", latestCP.Size, errAttr(err))
 						return
 					}
 					namespaceMatch, err := regexp.MatchString(*purlNamespaceRegex, purl.Namespace)
 					if err != nil {
-						fmt.Fprintf(os.Stderr, "error matching pURL namespace %s, regex %s, for tile index %d, log size %d: %v",
-							purl.Namespace, *purlNamespaceRegex, eb.Index, latestCP.Size, err)
+						slog.Error("error matching pURL", "purl", purl.String(),
+							"matcher", "namespace", "value", purl.Namespace, "regex", *purlNamespaceRegex,
+							"tile-index", eb.Index, "log-size", latestCP.Size, errAttr(err))
 						return
 					}
 					nameMatch, err := regexp.MatchString(*purlNameRegex, purl.Name)
 					if err != nil {
-						fmt.Fprintf(os.Stderr, "error matching pURL name %s, regex %s, for tile index %d, log size %d: %v",
-							purl.Name, *purlNameRegex, eb.Index, latestCP.Size, err)
+						slog.Error("error matching pURL", "purl", purl.String(),
+							"matcher", "name", "value", purl.Name, "regex", *purlNameRegex,
+							"tile-index", eb.Index, "log-size", latestCP.Size, errAttr(err))
 						return
 					}
 					versionMatch, err := regexp.MatchString(*purlVersionRegex, purl.Version)
 					if err != nil {
-						fmt.Fprintf(os.Stderr, "error matching pURL version %s, regex %s, for tile index %d, log size %d: %v",
-							purl.Version, *purlVersionRegex, eb.Index, latestCP.Size, err)
+						slog.Error("error matching pURL", "purl", purl.String(),
+							"matcher", "version", "value", purl.Version, "regex", *purlVersionRegex,
+							"tile-index", eb.Index, "log-size", latestCP.Size, errAttr(err))
 						return
 					}
 					if typeMatch && namespaceMatch && nameMatch && versionMatch {
-						fmt.Printf("Entry found at tile index %d, log size %d: %s\n", eb.Index, latestCP.Size, purl.String())
+						slog.Info("Entry found", "purl", purl.String(), "tile-index", eb.Index, "log-size", latestCP.Size)
 					}
 				}
 
 				// Verify 1-1 mapping between package ID and digest
 				digest, ok := purl.Qualifiers.Map()["digest"]
 				if !ok {
-					fmt.Fprintf(os.Stderr, "error getting digest from pURL %s for tile index %d, log size %d: %v",
-						string(e), eb.Index, latestCP.Size, err)
+					slog.Error("error getting digest from pURL", "purl", purl.String,
+						"tile-index", eb.Index, "log-size", latestCP.Size, errAttr(err))
 					return
 				}
 				purlWithoutDigest := packageurl.NewPackageURL(purl.Type, purl.Namespace, purl.Name,
@@ -230,8 +250,10 @@ func main() {
 				hash, found := idHashMap[purlWithoutDigest]
 				if found && digest != hash {
 					// Log if mapping is no longer 1-1
-					fmt.Fprintf(os.Stderr, "ALERT: mismatched digest for purl %s, got %s, expected %s",
-						purlWithoutDigest, hash, digest)
+					slog.Error(
+						fmt.Sprintf("ALERT: mismatched digest for purl %s, got %s, expected %s",
+							purlWithoutDigest, hash, digest),
+						"purl", purl.String())
 					return
 				} else {
 					// Persist new mapping
@@ -242,11 +264,11 @@ func main() {
 
 		// Persist latest checkpoint
 		if err := os.MkdirAll(*storageDir, 0o755); err != nil {
-			fmt.Fprintf(os.Stderr, "error creating directory for checkpoint: %v", err)
+			slog.Error("error creating directory for checkpoint", errAttr(err))
 			return
 		}
 		if err := os.WriteFile(checkpointPath, latestCPBytes, 0o644); err != nil {
-			fmt.Fprintf(os.Stderr, "error writing latest checkpoint: %v", err)
+			slog.Error("error writing latest checkpoint", errAttr(err))
 			return
 		}
 
@@ -254,11 +276,11 @@ func main() {
 		var buffer bytes.Buffer
 		enc := gob.NewEncoder(&buffer)
 		if err := enc.Encode(idHashMap); err != nil {
-			fmt.Fprintf(os.Stderr, "error encoding map: %v", err)
+			slog.Error("error encoding map", errAttr(err))
 			return
 		}
 		if err := os.WriteFile(idHashMapPath, buffer.Bytes(), 0o644); err != nil {
-			fmt.Fprintf(os.Stderr, "error writing map: %v", err)
+			slog.Error("error writing map", errAttr(err))
 			return
 		}
 
@@ -272,7 +294,7 @@ func main() {
 		case <-ticker.C:
 			continue
 		case <-signalChan:
-			fmt.Fprintf(os.Stderr, "received signal, exiting")
+			slog.Info("received signal, exiting")
 			return
 		}
 	}

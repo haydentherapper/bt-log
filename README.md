@@ -112,7 +112,7 @@ The signed checkpoint will have two signatures, one from the log and one from th
 - [ ] Lightweight monitor to demonstrate verifying ID-hash mapping is always 1-1 and alerting on publication
   - [x] ID-hash mapping verification
   - [x] Regex to match entries
-  - [ ] Use slog for output
+  - [x] Use slog for output
   - [ ] Transform pURL to entry, request entry from registry, compare hash
   - [ ] Add e2e to GHA script
 - [ ] Add unit tests
