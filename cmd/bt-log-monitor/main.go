@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/gob"
 	"errors"
 	"flag"
 	"fmt"
@@ -12,9 +15,11 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"regexp"
 	"syscall"
 	"time"
 
+	"github.com/package-url/packageurl-go"
 	tlog "github.com/transparency-dev/formats/log"
 	"github.com/transparency-dev/merkle/proof"
 	"github.com/transparency-dev/merkle/rfc6962"
@@ -24,16 +29,20 @@ import (
 )
 
 var (
-	logURL     = flag.String("log-url", "", "Log URL")
-	pubKeyPath = flag.String("public-key", "", "Path for log public key")
-	storageDir = flag.String("storage-dir", "", "Directory to store last verified checkpoint")
-	once       = flag.Bool("once", true, "Whether to run in a loop or not")
-	frequency  = flag.Duration("frequency", time.Minute, "How often to run the monitor")
+	logURL             = flag.String("log-url", "", "Log URL")
+	pubKeyPath         = flag.String("public-key", "", "Path for log public key")
+	storageDir         = flag.String("storage-dir", "", "Directory to store last verified checkpoint")
+	once               = flag.Bool("once", true, "Whether to run in a loop or not")
+	frequency          = flag.Duration("frequency", time.Minute, "How often to run the monitor")
+	debug              = flag.Bool("debug", false, "Print additional information")
+	purlTypeRegex      = flag.String("purl-type-regex", "", "Regex to match pURL type. Must set all pURL regex if set")
+	purlNamespaceRegex = flag.String("purl-namespace-regex", "", "Regex to match pURL namespace. Must set all pURL regex if set")
+	purlNameRegex      = flag.String("purl-name-regex", "", "Regex to match pURL name. Must set all pURL regex if set")
+	purlVersionRegex   = flag.String("purl-version-regex", "", "Regex to match pURL version. Must set all pURL regex if set")
 )
 
-// TODO: Add pURL regex matcher
-// TODO: Verify entries's ID->hash mapping is unique
-// TODO: Request entry from registry, compare hash
+// TODO: Switch to slog for matched entry output
+// TODO: Transform pURL to entry, request entry from registry, compare hash
 func main() {
 	flag.Parse()
 
@@ -45,6 +54,10 @@ func main() {
 	}
 	if *storageDir == "" {
 		log.Fatal("--storage-dir must be set")
+	}
+	regexMatch := false
+	if *purlTypeRegex != "" && *purlNamespaceRegex != "" && *purlNameRegex != "" && *purlVersionRegex != "" {
+		regexMatch = true
 	}
 
 	ticker := time.NewTicker(*frequency)
@@ -93,6 +106,11 @@ func main() {
 				return
 			}
 		}
+		// Initialize empty package ID->hash map, to be overwritten
+		// if this is not the first run
+		idHashMap := make(map[string]string)
+		idHashMapPath := path.Join(*storageDir, "idhashmap")
+
 		var previousCP *tlog.Checkpoint
 		if first {
 			emptyRoot := sha256.Sum256([]byte{})
@@ -105,6 +123,17 @@ func main() {
 			previousCP, _, _, err = tlog.ParseCheckpoint(previousCPBytes, v.Name(), v)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "failed to verify previous checkpoint: %v", err)
+				return
+			}
+			f, err := os.Open(idHashMapPath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error opening map file: %v", err)
+				return
+			}
+			defer f.Close()
+			dec := gob.NewDecoder(bufio.NewReader(f))
+			if err := dec.Decode(&idHashMap); err != nil {
+				fmt.Fprintf(os.Stderr, "error decoding map from disk: %v", err)
 				return
 			}
 		}
@@ -148,9 +177,68 @@ func main() {
 			}
 			// Iterate over each entry in the bundle, which may be from a partial tile
 			for _, e := range entries.Entries[eb.First:] {
-				// TODO: Alert when there's a match
-				pURL := string(e)
-				fmt.Println(pURL)
+				// Parse pURL string
+				purl, err := packageurl.FromString(string(e))
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "error parsing pURL %s for tile index %d, log size %d: %v",
+						string(e), eb.Index, latestCP.Size, err)
+					return
+				}
+				// Conditionally log when new entry is found
+				if *debug {
+					fmt.Printf("New entry at tile index %d, log size %d: %s\n", eb.Index, latestCP.Size, purl.String())
+				}
+
+				// Log if entry matches provided regex
+				if regexMatch {
+					typeMatch, err := regexp.MatchString(*purlTypeRegex, purl.Type)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "error matching pURL type %s, regex %s, for tile index %d, log size %d: %v",
+							purl.Type, *purlTypeRegex, eb.Index, latestCP.Size, err)
+						return
+					}
+					namespaceMatch, err := regexp.MatchString(*purlNamespaceRegex, purl.Namespace)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "error matching pURL namespace %s, regex %s, for tile index %d, log size %d: %v",
+							purl.Namespace, *purlNamespaceRegex, eb.Index, latestCP.Size, err)
+						return
+					}
+					nameMatch, err := regexp.MatchString(*purlNameRegex, purl.Name)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "error matching pURL name %s, regex %s, for tile index %d, log size %d: %v",
+							purl.Name, *purlNameRegex, eb.Index, latestCP.Size, err)
+						return
+					}
+					versionMatch, err := regexp.MatchString(*purlVersionRegex, purl.Version)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "error matching pURL version %s, regex %s, for tile index %d, log size %d: %v",
+							purl.Version, *purlVersionRegex, eb.Index, latestCP.Size, err)
+						return
+					}
+					if typeMatch && namespaceMatch && nameMatch && versionMatch {
+						fmt.Printf("Entry found at tile index %d, log size %d: %s\n", eb.Index, latestCP.Size, purl.String())
+					}
+				}
+
+				// Verify 1-1 mapping between package ID and digest
+				digest, ok := purl.Qualifiers.Map()["digest"]
+				if !ok {
+					fmt.Fprintf(os.Stderr, "error getting digest from pURL %s for tile index %d, log size %d: %v",
+						string(e), eb.Index, latestCP.Size, err)
+					return
+				}
+				purlWithoutDigest := packageurl.NewPackageURL(purl.Type, purl.Namespace, purl.Name,
+					purl.Version, nil, "").ToString()
+				hash, found := idHashMap[purlWithoutDigest]
+				if found && digest != hash {
+					// Log if mapping is no longer 1-1
+					fmt.Fprintf(os.Stderr, "ALERT: mismatched digest for purl %s, got %s, expected %s",
+						purlWithoutDigest, hash, digest)
+					return
+				} else {
+					// Persist new mapping
+					idHashMap[purlWithoutDigest] = digest
+				}
 			}
 		}
 
@@ -161,6 +249,18 @@ func main() {
 		}
 		if err := os.WriteFile(checkpointPath, latestCPBytes, 0o644); err != nil {
 			fmt.Fprintf(os.Stderr, "error writing latest checkpoint: %v", err)
+			return
+		}
+
+		// Persist encoded packge ID -> hash map
+		var buffer bytes.Buffer
+		enc := gob.NewEncoder(&buffer)
+		if err := enc.Encode(idHashMap); err != nil {
+			fmt.Fprintf(os.Stderr, "error encoding map: %v", err)
+			return
+		}
+		if err := os.WriteFile(idHashMapPath, buffer.Bytes(), 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "error writing map: %v", err)
 			return
 		}
 
