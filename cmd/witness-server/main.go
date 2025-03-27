@@ -178,7 +178,7 @@ func main() {
 		// If public key is empty, no row was selected, so the origin is unknown
 		if publicKey == "" {
 			// Return 404 for unknown log
-			log.Printf("origin not known by log: %v\n", err)
+			log.Printf("origin %s not known by log\n", origin)
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
