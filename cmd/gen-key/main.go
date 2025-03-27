@@ -15,10 +15,21 @@ var (
 	pubKeyPath  = flag.String("public-key-path", "public.key", "Output path for public key")
 )
 
+func fileExists(filename string) bool {
+	_, err := os.Stat(filename)
+	return !os.IsNotExist(err)
+}
+
 func main() {
 	flag.Parse()
 	if *origin == "" {
 		log.Fatalf("--origin must be set")
+	}
+	if fileExists(*privKeyPath) {
+		log.Fatalf("--private-key-path file must not exist")
+	}
+	if fileExists(*pubKeyPath) {
+		log.Fatalf("--public-key-path file must not exist")
 	}
 
 	privKey, pubKey, err := note.GenerateKey(rand.Reader, *origin)
