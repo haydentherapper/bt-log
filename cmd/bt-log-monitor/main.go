@@ -40,6 +40,9 @@ var (
 	purlNamespaceRegex = flag.String("purl-namespace-regex", "", "Regex to match pURL namespace. Must set all pURL regex if set")
 	purlNameRegex      = flag.String("purl-name-regex", "", "Regex to match pURL name. Must set all pURL regex if set")
 	purlVersionRegex   = flag.String("purl-version-regex", "", "Regex to match pURL version. Must set all pURL regex if set")
+	registry           = flag.String("registry", "", "When set, verifies that the package in the registry has the same digest as what's in the log."+
+		"Logs when the package is not found, which could happen if it's been yanked, and ideally there would be a another log with all yanked packages."+
+		"Supported registries: [pypi]")
 )
 
 func errAttr(err error) slog.Attr {
@@ -258,6 +261,12 @@ func main() {
 				} else {
 					// Persist new mapping
 					idHashMap[purlWithoutChecksum] = checksum
+				}
+
+				// Using the entry, compute the URL where the package is located in the registry,
+				// download the package, and compare its digest
+				if *registry != "" {
+					// TODO: Implement
 				}
 			}
 		}

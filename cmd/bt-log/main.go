@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -12,10 +13,10 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
-	"github.com/haydentherapper/bt-log/pkg/purl"
 	tlog "github.com/transparency-dev/formats/log"
 	"github.com/transparency-dev/merkle/proof"
 	"github.com/transparency-dev/merkle/rfc6962"
@@ -43,8 +44,21 @@ func addCacheHeaders(value string, fs http.Handler) http.HandlerFunc {
 	}
 }
 
+// type LogEntry struct {
+// 	PURL string `json:"purl"` // e.g. pkg:pypi/pkgname@1.2.3?digest=sha256:5141b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be92
+// }
+
 type LogEntry struct {
-	PURL string `json:"purl"` // e.g. pkg:pypi/pkgname@1.2.3?checksum=sha256:5141b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be92
+	// Registry, e.g. rubygems, pypi
+	Registry string `json:"registry"`
+	// Specific instance of registry, e.g. rubygems.org
+	Instance string `json:"instance"`
+	// May include namespace, e.g. pkgname or namespace/pkgname. Dependent on registry specification
+	Package string `json:"package"`
+	// Package version, e.g. 1.2.3, v1.2.3. Dependent on registry specification.
+	Version string `json:"version"`
+	// Package digest in the form alg:hash, e.g. sha256:5141b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be92. Only SHA256 is supported currently.
+	Digest string `json:"digest"`
 }
 
 type LogEntryResponse struct {
@@ -150,13 +164,75 @@ func main() {
 			return
 		}
 
-		if err := purl.VerifyPURL(e.PURL, *purlType); err != nil {
+		// Verify request
+		if e.Registry == "" {
 			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("registry must not be empty"))
+			return
+		}
+		if e.Instance == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("instance must not be empty"))
+			return
+		}
+		if e.Package == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("package must not be empty"))
+			return
+		}
+		if e.Version == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("version must not be empty"))
+			return
+		}
+		if e.Digest == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("digest must not be empty"))
+			return
+		}
+		if e.Registry != *purlType {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(fmt.Sprintf("registry must be %s, was %s", *purlType, e.Registry)))
+			return
+		}
+		funcAndDigest := strings.Split(e.Digest, ":")
+		if len(funcAndDigest) != 2 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("digest must be sha256:hex-encoded-digest"))
+			return
+		}
+		if funcAndDigest[0] != "sha256" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("digest must start with sha256"))
+			return
+		}
+		if _, err := hex.DecodeString(funcAndDigest[1]); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("digest must be hex-encoded"))
+			return
+		}
+		if len(funcAndDigest[1]) != 64 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("digest must be hex-encoded SHA256 digest"))
+			return
+		}
+		// TODO: Change to canonical JSON
+		logEntry, err := json.Marshal(e)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(err.Error()))
 			return
 		}
 
-		f := addFn(r.Context(), tessera.NewEntry([]byte(e.PURL)))
+		// if err := purl.VerifyPURL(e.PURL, *purlType); err != nil {
+		// 	w.WriteHeader(http.StatusBadRequest)
+		// 	_, _ = w.Write([]byte(err.Error()))
+		// 	return
+		// }
+
+		// f := addFn(r.Context(), tessera.NewEntry([]byte(e.PURL)))
+
+		f := addFn(r.Context(), tessera.NewEntry(logEntry))
 		idx, rawCp, err := await.Await(ctx, f)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -182,7 +258,8 @@ func main() {
 			return
 		}
 		// make sure the proof is valid
-		leafHash := rfc6962.DefaultHasher.HashLeaf([]byte(e.PURL))
+		// leafHash := rfc6962.DefaultHasher.HashLeaf([]byte(e.PURL))
+		leafHash := rfc6962.DefaultHasher.HashLeaf(logEntry)
 		if err := proof.VerifyInclusion(rfc6962.DefaultHasher, idx.Index, cp.Size, leafHash, inclusionProof, cp.Hash); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(err.Error()))
