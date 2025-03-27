@@ -1,0 +1,95 @@
+services:
+  # Binary transparency log, with witnessed checkpoints
+  bt-log:
+    build:
+      context: .
+      dockerfile: Dockerfile.btlog
+    ports:
+      - "8080:8080"
+    command: [
+      "--host=0.0.0.0",
+      "--port=8080",
+      "--storage-dir=/home/app/log-storage",
+      "--purl-type=pypi",
+      "--public-key=/home/app/keys/public.key",
+      "--private-key=/home/app/keys/private.key",
+      "--witness-url=http://witness-server:8081",
+      "--witness-public-key=/home/app/keys/witness-public.key",
+    ]
+    depends_on:
+      witness-server:
+        condition: service_healthy
+        restart: true
+    volumes:
+      - bt-log:/home/app/log-storage
+      - keys:/home/app/keys
+  # Witness for log
+  witness-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.witness
+    ports:
+      - "8081:8081"
+    command: [
+      "--host=0.0.0.0",
+      "--port=8081",
+      "--database-path=/home/app/witness/witness.db",
+      "--public-key=/home/app/keys/witness-public.key",
+      "--private-key=/home/app/keys/witness-private.key",
+    ]
+    volumes:
+      - keys:/home/app/keys
+      - witness:/home/app/witness
+    healthcheck:
+      test: ["CMD-SHELL", "curl http://localhost:8081 | grep \"404 page not found\""]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+      timeout: 10s
+  # Generates public and private key for log
+  # Must only run once. To run again, delete volume.
+  gen-key-log:
+    profiles: [admin]
+    build:
+      context: .
+      dockerfile: Dockerfile.genkey
+    command: [
+      "--origin=binarytransparency.log/example",
+      "--private-key-path=/home/app/keys/private.key",
+      "--public-key-path=/home/app/keys/public.key",
+    ]
+    volumes:
+      - keys:/home/app/keys
+  # Generates public and private key for witness
+  # Must only run once. To run again, delete volume.
+  gen-key-witness:
+    profiles: [admin]
+    build:
+      context: .
+      dockerfile: Dockerfile.genkey
+    command: [
+      "--origin=witness.log/example",
+      "--private-key-path=/home/app/keys/witness-private.key",
+      "--public-key-path=/home/app/keys/witness-public.key",
+    ]
+    volumes:
+      - keys:/home/app/keys
+  # Initializes witness database with log's public key.
+  # Should only be run once, but is idempotent. If a new
+  # log key is created, delete volume and re-run.
+  init-witness:
+    profiles: [admin]
+    build:
+      context: .
+      dockerfile: Dockerfile.initwitness
+    volumes:
+      - keys:/home/app/keys
+      - witness:/home/app/witness
+volumes:
+  # Stores checkpoint, tiles, and entry bundles
+  bt-log:
+  # Stores log and witness public and private keys
+   # In a production environment, witness and log private keys should be in different volumes
+  keys:
+  # Stores witness database with log public key and last verified checkpoint
+  witness:

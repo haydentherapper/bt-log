@@ -1,0 +1,25 @@
+FROM golang:1.24.1@sha256:52ff1b35ff8de185bf9fd26c70077190cd0bed1e9f16a2d498ce907e5c421268 AS build
+
+WORKDIR /build
+
+COPY go.mod go.sum ./
+RUN go mod download && go mod verify
+
+COPY . .
+# cgo needed for go-sqlite3
+RUN CGO_ENABLED=1 go build -v -o ./witness-add-key ./cmd/witness-add-key
+
+FROM golang:1.24.1@sha256:52ff1b35ff8de185bf9fd26c70077190cd0bed1e9f16a2d498ce907e5c421268
+
+WORKDIR /home/app
+
+RUN apt-get update
+RUN apt-get install sqlite3
+
+RUN mkdir witness
+RUN sqlite3 -line witness/witness.db '.database'
+
+COPY --from=build /build/witness-add-key ./
+
+ENTRYPOINT ["./witness-add-key"]
+CMD ["--database-path=/home/app/witness/witness.db", "--public-key=/home/app/keys/public.key"]

@@ -106,6 +106,31 @@ cat bundle | jq -r .checkpoint | base64 -d
 
 The signed checkpoint will have two signatures, one from the log and one from the witness.
 
+# Docker Deployment
+
+Using the provided Docker Compose file, you can initialize and deploy the log and witness.
+
+Run the following administrative jobs once to generate the log and witness keys and initialize the witness database:
+
+```
+docker compose --profile admin build
+docker compose run gen-key-log
+docker compose run gen-key-witness
+docker compose run init-witness
+```
+
+Run the log and witness:
+
+```
+docker compose up
+```
+
+To clean up containers and volumes:
+
+```
+docker-compose down --remove-orphans --volumes
+```
+
 # Upcoming Work
 
 - [ ] Change pURL to a custom representation
@@ -116,4 +141,4 @@ The signed checkpoint will have two signatures, one from the log and one from th
   - [ ] Transform pURL to entry, request entry from registry, compare hash
   - [x] Add e2e to GHA script
 - [ ] Add unit tests
-- [ ] Containerize for e2e tests
+- [x] Containerize for e2e tests
