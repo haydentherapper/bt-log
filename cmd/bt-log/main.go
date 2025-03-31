@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -10,6 +11,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/haydentherapper/bt-log/pkg/purl"
@@ -212,10 +215,27 @@ func main() {
 	address := fmt.Sprintf("%s:%d", *host, *port)
 	fmt.Printf("Server running at %s\n", address)
 
-	if err := http.ListenAndServe(address, http.DefaultServeMux); err != nil {
-		if err := shutdown(ctx); err != nil {
-			log.Fatal(err)
+	// Gracefully shutdown for SIGINT/SIGTERM
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+
+	srv := &http.Server{
+		Addr:    address,
+		Handler: http.DefaultServeMux,
+	}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("error in ListenAndServe: %v", err)
 		}
-		log.Fatalf("ListenAndServe: %v", err)
+	}()
+
+	// Wait until SIGINT/SIGTERM, then shutdown server and invoke Tessera cleanup
+	sig := <-signalChan
+	fmt.Printf("received %s, shutting down", sig)
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatal(err)
+	}
+	if err := shutdown(ctx); err != nil {
+		log.Fatal(err)
 	}
 }
