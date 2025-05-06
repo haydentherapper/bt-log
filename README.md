@@ -122,7 +122,7 @@ docker compose run init-witness
 Run the log and witness:
 
 ```
-docker compose up
+docker compose up --wait
 ```
 
 To clean up containers and volumes:
