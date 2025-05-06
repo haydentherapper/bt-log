@@ -132,7 +132,7 @@ func main() {
 	}
 	addFn := appender.Add
 	tileFetcher := r.ReadTile
-	await := tessera.NewIntegrationAwaiter(ctx, r.ReadCheckpoint, time.Second)
+	await := tessera.NewPublicationAwaiter(ctx, r.ReadCheckpoint, time.Second)
 
 	// Define a handler for /add that accepts POST requests and adds the POST body to the log
 	http.HandleFunc("POST /add", func(w http.ResponseWriter, r *http.Request) {
@@ -175,7 +175,7 @@ func main() {
 			_, _ = w.Write([]byte(err.Error()))
 			return
 		}
-		inclusionProof, err := pb.InclusionProof(ctx, idx)
+		inclusionProof, err := pb.InclusionProof(ctx, idx.Index)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(err.Error()))
@@ -183,14 +183,14 @@ func main() {
 		}
 		// make sure the proof is valid
 		leafHash := rfc6962.DefaultHasher.HashLeaf([]byte(e.PURL))
-		if err := proof.VerifyInclusion(rfc6962.DefaultHasher, idx, cp.Size, leafHash, inclusionProof, cp.Hash); err != nil {
+		if err := proof.VerifyInclusion(rfc6962.DefaultHasher, idx.Index, cp.Size, leafHash, inclusionProof, cp.Hash); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(err.Error()))
 			return
 		}
 
 		resp := LogEntryResponse{
-			Index:          idx,
+			Index:          idx.Index,
 			InclusionProof: inclusionProof,
 			Checkpoint:     rawCp,
 		}
