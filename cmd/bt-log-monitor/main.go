@@ -238,26 +238,26 @@ func main() {
 					}
 				}
 
-				// Verify 1-1 mapping between package ID and digest
-				digest, ok := purl.Qualifiers.Map()["digest"]
+				// Verify 1-1 mapping between package ID and checksum
+				checksum, ok := purl.Qualifiers.Map()["checksum"]
 				if !ok {
-					slog.Error("error getting digest from pURL", "purl", purl.String,
+					slog.Error("error getting checksum from pURL", "purl", purl.String,
 						"tile-index", eb.Index, "log-size", latestCP.Size, errAttr(err))
 					return
 				}
-				purlWithoutDigest := packageurl.NewPackageURL(purl.Type, purl.Namespace, purl.Name,
+				purlWithoutChecksum := packageurl.NewPackageURL(purl.Type, purl.Namespace, purl.Name,
 					purl.Version, nil, "").ToString()
-				hash, found := idHashMap[purlWithoutDigest]
-				if found && digest != hash {
+				hash, found := idHashMap[purlWithoutChecksum]
+				if found && checksum != hash {
 					// Log if mapping is no longer 1-1
 					slog.Error(
-						fmt.Sprintf("ALERT: mismatched digest for purl %s, got %s, expected %s",
-							purlWithoutDigest, hash, digest),
+						fmt.Sprintf("ALERT: mismatched checksum for purl %s, got %s, expected %s",
+							purlWithoutChecksum, hash, checksum),
 						"purl", purl.String())
 					return
 				} else {
 					// Persist new mapping
-					idHashMap[purlWithoutDigest] = digest
+					idHashMap[purlWithoutChecksum] = checksum
 				}
 			}
 		}

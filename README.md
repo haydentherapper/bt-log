@@ -9,7 +9,7 @@ The JSON request should contain a single string, a package identified by a
 
 ```json
 {
-    "purl": "pkg:pypi/my-package@1.2.3?digest=sha256:3b9730808f265c6d174662668435c4cf1fc9ddcd369831a646fa84bff8594f0c"
+    "purl": "pkg:pypi/my-package@1.2.3?checksum=sha256:3b9730808f265c6d174662668435c4cf1fc9ddcd369831a646fa84bff8594f0c"
 }
 ```
 
@@ -18,7 +18,7 @@ The pURL must contain:
 1. A pURL type that matches the name of the package registry, e.g. `pypi`, `gem`
 2. The name of a package. Namespace is optional
 3. The package version, e.g. `1.2.3`, `v1.2.3`
-4. A single qualifier containing the SHA 256 digest
+4. A single qualifier containing the SHA 256 checksum
 
 The JSON response will include the index of the entry, the inclusion proof, and the checkpoint
 as per the [C2SP checkpoint spec](https://github.com/C2SP/C2SP/blob/main/tlog-checkpoint.md):
@@ -99,7 +99,7 @@ go run ./cmd/bt-log --storage-dir=/tmp/bt-log --private-key=private.key --public
 The checkpoint in the log's response will contain a co-signed checkpoint:
 
 ```
-curl -XPOST http://localhost:8080/add -d "{\"purl\":\"pkg:pypi/pkgname@1.2.3?digest=sha256:5141b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be92\"}" -o bundle
+curl -XPOST http://localhost:8080/add -d "{\"purl\":\"pkg:pypi/pkgname@1.2.3?checksum=sha256:5141b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be92\"}" -o bundle
 
 cat bundle | jq -r .checkpoint | base64 -d
 ```
