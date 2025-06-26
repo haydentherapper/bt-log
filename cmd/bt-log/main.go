@@ -44,7 +44,7 @@ func addCacheHeaders(value string, fs http.Handler) http.HandlerFunc {
 }
 
 type LogEntry struct {
-	PURL string `json:"purl"` // e.g. pkg:pypi/pkgname@1.2.3?digest=sha256:5141b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be92
+	PURL string `json:"purl"` // e.g. pkg:pypi/pkgname@1.2.3?checksum=sha256:5141b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be92
 }
 
 type LogEntryResponse struct {

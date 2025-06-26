@@ -9,7 +9,7 @@ import (
 )
 
 // VerifyPURL verifies the pURL string is of the form
-// pkg:{type}/{optional namespace}/{name}@{version}?digest=sha256:{digest}
+// pkg:{type}/{optional namespace}/{name}@{version}?checksum=sha256:{checksum}
 func VerifyPURL(purlString, expectedPURLType string) error {
 	purl, err := packageurl.FromString(purlString)
 	if err != nil {
@@ -23,24 +23,24 @@ func VerifyPURL(purlString, expectedPURLType string) error {
 	}
 	qualifiers := purl.Qualifiers.Map()
 	if len(qualifiers) != 1 {
-		return fmt.Errorf("pURL must contain only the digest qualifier")
+		return fmt.Errorf("pURL must contain only the checksum qualifier")
 	}
-	digest, ok := qualifiers["digest"]
+	checksum, ok := qualifiers["checksum"]
 	if !ok {
-		return fmt.Errorf("pURL missing digest qualifier")
+		return fmt.Errorf("pURL missing checksum qualifier")
 	}
-	funcAndDigest := strings.Split(digest, ":")
-	if len(funcAndDigest) != 2 {
-		return fmt.Errorf("pURL digest must be sha256:hex-encoded-digest")
+	funcAndChecksum := strings.Split(checksum, ":")
+	if len(funcAndChecksum) != 2 {
+		return fmt.Errorf("pURL checksum must be sha256:hex-encoded-checksum")
 	}
-	if funcAndDigest[0] != "sha256" {
-		return fmt.Errorf("pURL digest must start with sha256")
+	if funcAndChecksum[0] != "sha256" {
+		return fmt.Errorf("pURL checksum must start with sha256")
 	}
-	if _, err := hex.DecodeString(funcAndDigest[1]); err != nil {
-		return fmt.Errorf("pURL digest must be hex-encoded")
+	if _, err := hex.DecodeString(funcAndChecksum[1]); err != nil {
+		return fmt.Errorf("pURL checksum must be hex-encoded")
 	}
-	if len(funcAndDigest[1]) != 64 {
-		return fmt.Errorf("pURL digest must be hex-encoded SHA256 digest")
+	if len(funcAndChecksum[1]) != 64 {
+		return fmt.Errorf("pURL checksum must be hex-encoded SHA256 checksum")
 	}
 	if purl.Subpath != "" {
 		return fmt.Errorf("pURL must not contain subpath")
