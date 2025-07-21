@@ -19,9 +19,9 @@ import (
 	tlog "github.com/transparency-dev/formats/log"
 	"github.com/transparency-dev/merkle/proof"
 	"github.com/transparency-dev/merkle/rfc6962"
-	tessera "github.com/transparency-dev/trillian-tessera"
-	"github.com/transparency-dev/trillian-tessera/client"
-	"github.com/transparency-dev/trillian-tessera/storage/posix"
+	"github.com/transparency-dev/tessera"
+	"github.com/transparency-dev/tessera/client"
+	"github.com/transparency-dev/tessera/storage/posix"
 	"golang.org/x/mod/sumdb/note"
 )
 
@@ -124,7 +124,7 @@ func main() {
 		WithBatching(256, time.Second).
 		WithAntispam(256, nil)
 	if witness != nil {
-		opts = opts.WithWitnesses(tessera.NewWitnessGroup(1, witness))
+		opts = opts.WithWitnesses(tessera.NewWitnessGroup(1, witness), &tessera.WitnessOptions{FailOpen: false})
 	}
 	appender, shutdown, r, err := tessera.NewAppender(ctx, driver, opts)
 	if err != nil {
@@ -169,7 +169,7 @@ func main() {
 			_, _ = w.Write([]byte(err.Error()))
 			return
 		}
-		pb, err := client.NewProofBuilder(ctx, *cp, tileFetcher)
+		pb, err := client.NewProofBuilder(ctx, cp.Size, tileFetcher)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(err.Error()))

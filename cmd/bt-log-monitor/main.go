@@ -23,8 +23,8 @@ import (
 	tlog "github.com/transparency-dev/formats/log"
 	"github.com/transparency-dev/merkle/proof"
 	"github.com/transparency-dev/merkle/rfc6962"
-	"github.com/transparency-dev/trillian-tessera/api/layout"
-	"github.com/transparency-dev/trillian-tessera/client"
+	"github.com/transparency-dev/tessera/api/layout"
+	"github.com/transparency-dev/tessera/client"
 	"golang.org/x/mod/sumdb/note"
 )
 
@@ -168,7 +168,7 @@ func main() {
 
 		// Pass the latest checkpoint even though we haven't verified consistency yet.
 		// It's only used for building inclusion proofs, which aren't needed here.
-		pb, err := client.NewProofBuilder(context.Background(), *latestCP, logFetcher.ReadTile)
+		pb, err := client.NewProofBuilder(context.Background(), latestCP.Size, logFetcher.ReadTile)
 		if err != nil {
 			slog.Error("error creating proof builder", errAttr(err))
 			return
