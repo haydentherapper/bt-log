@@ -44,7 +44,11 @@ func main() {
 		log.Fatalf("--public-key required to initialize witness")
 	}
 
-	db, err := sql.Open("sqlite3", *dbPath)
+	// Enable Write-Ahead Logging for better concurrency, allowing reads during writes.
+	// A busy timeout is also set to prevent "database is locked" errors under contention,
+	// with writers waiting 1s before returning an error.
+	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=1000", *dbPath)
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		log.Fatal(err)
 	}
