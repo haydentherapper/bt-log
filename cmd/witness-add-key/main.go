@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 
@@ -27,7 +28,8 @@ func main() {
 		log.Fatalf("--public-key required to add log key to witness")
 	}
 
-	db, err := sql.Open("sqlite3", *dbPath)
+	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=1000", *dbPath)
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		log.Fatal(err)
 	}
