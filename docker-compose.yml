@@ -1,51 +1,30 @@
+x-bt-log-base: &bt-log-base
+  build:
+    context: .
+    dockerfile: Dockerfile.btlog
+  ports:
+    - "8080:8080"
+  volumes:
+    - bt-log:/home/app/log-storage
+    - keys:/home/app/keys
+  restart: always
+
+x-witness-base: &witness-base
+  build:
+    context: .
+    dockerfile: Dockerfile.witness
+  ports:
+    - "8081:8081"
+  volumes:
+    - keys:/home/app/keys
+  healthcheck:
+    test: ["CMD-SHELL", "curl http://localhost:8081 | grep \"404 page not found\""]
+    interval: 2s
+    timeout: 10s
+    retries: 5
+  restart: always
+
 services:
-  # Binary transparency log, with witnessed checkpoints
-  bt-log:
-    build:
-      context: .
-      dockerfile: Dockerfile.btlog
-    ports:
-      - "8080:8080"
-    command: [
-      "--host=0.0.0.0",
-      "--port=8080",
-      "--storage-dir=/home/app/log-storage",
-      "--purl-type=pypi",
-      "--public-key=/home/app/keys/public.key",
-      "--private-key=/home/app/keys/private.key",
-      "--witness-url=http://witness-server:8081",
-      "--witness-public-key=/home/app/keys/witness-public.key",
-    ]
-    depends_on:
-      witness-server:
-        condition: service_healthy
-        restart: true
-    volumes:
-      - bt-log:/home/app/log-storage
-      - keys:/home/app/keys
-  # Witness for log
-  witness-server:
-    build:
-      context: .
-      dockerfile: Dockerfile.witness
-    ports:
-      - "8081:8081"
-    command: [
-      "--host=0.0.0.0",
-      "--port=8081",
-      "--database-path=/home/app/witness/witness.db",
-      "--public-key=/home/app/keys/witness-public.key",
-      "--private-key=/home/app/keys/witness-private.key",
-    ]
-    volumes:
-      - keys:/home/app/keys
-      - witness:/home/app/witness
-    healthcheck:
-      test: ["CMD-SHELL", "curl http://localhost:8081 | grep \"404 page not found\""]
-      interval: 10s
-      retries: 5
-      start_period: 5s
-      timeout: 10s
   # Generates public and private key for log
   # Must only run once. To run again, delete volume.
   gen-key-log:
@@ -74,22 +53,192 @@ services:
     ]
     volumes:
       - keys:/home/app/keys
+  # --- SQLite Profile ---
+  # Binary transparency log, with witnessed checkpoints
+  bt-log-sqlite:
+    profiles: [sqlite]
+    <<: *bt-log-base
+    command: [
+      "--host=0.0.0.0",
+      "--port=8080",
+      "--storage-dir=/home/app/log-storage",
+      "--purl-type=pypi",
+      "--public-key=/home/app/keys/public.key",
+      "--private-key=/home/app/keys/private.key",
+      "--witness-url=http://witness-server-sqlite:8081",
+      "--witness-public-key=/home/app/keys/witness-public.key",
+    ]
+    depends_on:
+      witness-server-sqlite:
+        condition: service_healthy
+  # Witness for log
+  witness-server-sqlite:
+    profiles: [sqlite]
+    <<: *witness-base
+    command: [
+      "--host=0.0.0.0",
+      "--port=8081",
+      "--database-path=/home/app/witness/witness.db",
+      "--public-key=/home/app/keys/witness-public.key",
+      "--private-key=/home/app/keys/witness-private.key",
+    ]
+    volumes: # Mount witness volume for sqlite db
+      - keys:/home/app/keys
+      - sqlite-data:/home/app/witness
+    depends_on:
+      init-witness-sqlite:
+        condition: service_completed_successfully
   # Initializes witness database with log's public key.
   # Should only be run once, but is idempotent. If a new
   # log key is created, delete volume and re-run.
-  init-witness:
-    profiles: [admin]
+  init-witness-sqlite:
+    profiles: [sqlite]
     build:
       context: .
       dockerfile: Dockerfile.initwitness
+    command: [
+      "--database-path=/home/app/witness/witness.db",
+      "--public-key=/home/app/keys/public.key"
+    ]
     volumes:
       - keys:/home/app/keys
-      - witness:/home/app/witness
+      - sqlite-data:/home/app/witness
+  # --- MySQL Profile ---
+  bt-log-mysql:
+    profiles: [mysql]
+    <<: *bt-log-base
+    command: [
+      "--host=0.0.0.0",
+      "--port=8080",
+      "--storage-dir=/home/app/log-storage",
+      "--purl-type=pypi",
+      "--public-key=/home/app/keys/public.key",
+      "--private-key=/home/app/keys/private.key",
+      "--witness-url=http://witness-server-mysql:8081",
+      "--witness-public-key=/home/app/keys/witness-public.key",
+    ]
+    depends_on:
+      witness-server-mysql:
+        condition: service_healthy
+  witness-server-mysql:
+    profiles: [mysql]
+    <<: *witness-base
+    command: [
+      "--host=0.0.0.0",
+      "--port=8081",
+      "--db-type=mysql",
+      "--db-dsn=witnessuser:witnesspassword@tcp(mysql:3306)/witnessdb",
+      "--public-key=/home/app/keys/witness-public.key",
+      "--private-key=/home/app/keys/witness-private.key",
+    ]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      init-witness-mysql:
+        condition: service_completed_successfully
+  mysql:
+    profiles: [mysql]
+    image: mysql:8.4
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: witnessdb
+      MYSQL_USER: witnessuser
+      MYSQL_PASSWORD: witnesspassword
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: "mysqladmin -h 127.0.0.1 --user=$$MYSQL_USER --password=$$MYSQL_ROOT_PASSWORD -s ping"
+      interval: 2s
+      timeout: 10s
+      retries: 5
+  init-witness-mysql:
+    profiles: [mysql]
+    build:
+      context: .
+      dockerfile: Dockerfile.initwitness
+    command: [
+      "--db-type=mysql",
+      "--db-dsn=witnessuser:witnesspassword@tcp(mysql:3306)/witnessdb",
+      "--public-key=/home/app/keys/public.key"
+    ]
+    volumes:
+      - keys:/home/app/keys
+    depends_on:
+      mysql:
+        condition: service_healthy
+  # --- PostgreSQL Profile ---
+  bt-log-postgres:
+    profiles: [postgres]
+    <<: *bt-log-base
+    command: [
+      "--host=0.0.0.0",
+      "--port=8080",
+      "--storage-dir=/home/app/log-storage",
+      "--purl-type=pypi",
+      "--public-key=/home/app/keys/public.key",
+      "--private-key=/home/app/keys/private.key",
+      "--witness-url=http://witness-server-postgres:8081",
+      "--witness-public-key=/home/app/keys/witness-public.key",
+    ]
+    depends_on:
+      witness-server-postgres:
+        condition: service_healthy
+  witness-server-postgres:
+    profiles: [postgres]
+    <<: *witness-base
+    command: [
+      "--host=0.0.0.0",
+      "--port=8081",
+      "--db-type=postgres",
+      "--db-dsn=postgres://witnessuser:witnesspassword@postgres:5432/witnessdb?sslmode=disable",
+      "--public-key=/home/app/keys/witness-public.key",
+      "--private-key=/home/app/keys/witness-private.key",
+    ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init-witness-postgres:
+        condition: service_completed_successfully
+  postgres:
+    profiles: [postgres]
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_DB: witnessdb
+      POSTGRES_USER: witnessuser
+      POSTGRES_PASSWORD: witnesspassword
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U witnessuser -d witnessdb"]
+      interval: 2s
+      timeout: 10s
+      retries: 5
+  init-witness-postgres:
+    profiles: [postgres]
+    build:
+      context: .
+      dockerfile: Dockerfile.initwitness
+    command: [
+      "--db-type=postgres",
+      "--db-dsn=postgres://witnessuser:witnesspassword@postgres:5432/witnessdb?sslmode=disable",
+      "--public-key=/home/app/keys/public.key"
+    ]
+    volumes:
+      - keys:/home/app/keys
+    depends_on:
+      postgres:
+        condition: service_healthy
 volumes:
   # Stores checkpoint, tiles, and entry bundles
   bt-log:
   # Stores log and witness public and private keys
    # In a production environment, witness and log private keys should be in different volumes
   keys:
-  # Stores witness database with log public key and last verified checkpoint
-  witness:
+  # Stores witness database in sqlite with log public key and last verified checkpoint
+  sqlite-data:
+  # Stores witness database in mysql
+  mysql-data:
+  # Stores witness database in postgres
+  postgres-data:

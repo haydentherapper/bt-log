@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/haydentherapper/bt-log/pkg/purl"
+	"github.com/haydentherapper/bt-log/internal/purl"
 	tlog "github.com/transparency-dev/formats/log"
 	"github.com/transparency-dev/merkle/proof"
 	"github.com/transparency-dev/merkle/rfc6962"
@@ -113,7 +113,9 @@ func main() {
 	}
 
 	// Create the Tessera POSIX storage, using the directory from the --storage-dir flag
-	driver, err := posix.New(ctx, *storageDir)
+	driver, err := posix.New(ctx, posix.Config{
+		Path: *storageDir,
+	})
 	if err != nil {
 		log.Fatalf("failed to construct driver: %v", err)
 	}
