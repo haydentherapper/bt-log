@@ -14,6 +14,7 @@ permissions:
 
 jobs:
   e2e-test:
+    name: "Run end-to-end test with log, witness and monitor"
     runs-on: ubuntu-latest
 
     steps:

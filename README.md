@@ -110,25 +110,72 @@ The signed checkpoint will have two signatures, one from the log and one from th
 
 Using the provided Docker Compose file, you can initialize and deploy the log and witness.
 
+You'll need to pick a storage backend. SQLite, PostgreSQL and MySQL are supported.
+
+## SQLite
+
 Run the following administrative jobs once to generate the log and witness keys and initialize the witness database:
 
-```
-docker compose --profile admin build
+```shell
+docker compose --profile admin --profile sqlite build
 docker compose run gen-key-log
 docker compose run gen-key-witness
-docker compose run init-witness
 ```
 
 Run the log and witness:
 
-```
-docker compose up --wait
+```shell
+docker compose --profile sqlite up --wait
 ```
 
 To clean up containers and volumes:
 
+```shell
+docker compose --profile sqlite down --remove-orphans --volumes
 ```
-docker-compose down --remove-orphans --volumes
+
+## PostgreSQL
+
+Run the following administrative jobs once to generate the log and witness keys and initialize the witness database:
+
+```shell
+docker compose --profile admin --profile postgres build
+docker compose run gen-key-log
+docker compose run gen-key-witness
+```
+
+Run the log and witness:
+
+```shell
+docker compose --profile postgres up --wait
+```
+
+To clean up containers and volumes:
+
+```shell
+docker compose --profile postgres down --remove-orphans --volumes
+```
+
+## MySQL
+
+Run the following administrative jobs once to generate the log and witness keys and initialize the witness database:
+
+```shell
+docker compose --profile admin --profile mysql build
+docker compose run gen-key-log
+docker compose run gen-key-witness
+```
+
+Run the log and witness:
+
+```shell
+docker compose --profile mysql up --wait
+```
+
+To clean up containers and volumes:
+
+```shell
+docker compose --profile mysql down --remove-orphans --volumes
 ```
 
 # Upcoming Work

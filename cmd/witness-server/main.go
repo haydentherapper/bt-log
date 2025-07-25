@@ -15,27 +15,58 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/haydentherapper/bt-log/internal/db/postgres"
 	tlog "github.com/transparency-dev/formats/log"
 	"github.com/transparency-dev/merkle/proof"
 	"github.com/transparency-dev/merkle/rfc6962"
 	"golang.org/x/mod/sumdb/note"
 
-	_ "github.com/mattn/go-sqlite3" // Import the SQLite driver
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	_ "modernc.org/sqlite"
 )
 
 var (
 	host        = flag.String("host", "localhost", "host to listen on")
 	port        = flag.Uint("port", 8081, "port to listen on")
-	dbPath      = flag.String("database-path", "", "Path to checkpoint database")
-	privKeyFile = flag.String("private-key", "", "Location of witness private key file")
-	pubKeyFile  = flag.String("public-key", "", "Location of witness public key file")
+	dbPath      = flag.String("database-path", "", "path to checkpoint database (for sqlite)")
+	privKeyFile = flag.String("private-key", "", "location of witness private key file")
+	pubKeyFile  = flag.String("public-key", "", "location of witness public key file")
+	dbType      = flag.String("db-type", "sqlite", "database type (sqlite, mysql, postgres)")
+	dbDSN       = flag.String("db-dsn", "", "database data source name")
 )
+
+func writeCosignatureResp(w http.ResponseWriter, cosignedCheckpoint []byte) {
+	// Split co-signed checkpoint to extract signatures
+	_, sigs, ok := bytes.Cut(cosignedCheckpoint, []byte("\n\n"))
+	if !ok {
+		log.Printf("error splitting cosigned checkpoint\n")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	// Remove first signature line, which is the log signature
+	_, cosig, ok := bytes.Cut(sigs, []byte("\n"))
+	if !ok {
+		log.Printf("error splitting signatures on checkpoint\n")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	// Return cosignature
+	if _, err := w.Write(cosig); err != nil {
+		log.Printf("/add-checkpoint: %v", err)
+	}
+}
 
 func main() {
 	flag.Parse()
 
-	if *dbPath == "" {
-		log.Fatalf("--database-path required to initialize witness")
+	if (*dbPath == "" && *dbDSN == "") || (*dbPath != "" && *dbDSN != "") {
+		log.Fatalf("exactly one of --database-path or --db-dsn must be set")
+	}
+	if *dbPath != "" && *dbType != "sqlite" {
+		log.Fatalf("--database-path can only be used with --db-type=sqlite")
 	}
 	if *privKeyFile == "" {
 		log.Fatalf("--private-key required to initialize witness")
@@ -44,20 +75,47 @@ func main() {
 		log.Fatalf("--public-key required to initialize witness")
 	}
 
-	// Enable Write-Ahead Logging for better concurrency, allowing reads during writes.
-	// A busy timeout is also set to prevent "database is locked" errors under contention,
-	// with writers waiting 1s before returning an error.
-	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=1000", *dbPath)
-	db, err := sql.Open("sqlite3", dsn)
+	var driverName, dsn string
+	rebind := func(s string) string { return s } // Default is no-op for mysql and sqlite
+
+	switch *dbType {
+	case "sqlite":
+		driverName = "sqlite"
+		if *dbDSN != "" {
+			dsn = *dbDSN
+		} else {
+			// Enable Write-Ahead Logging for better concurrency, allowing reads during writes.
+			// A busy timeout is also set to prevent "database is locked" errors under contention,
+			// with writers waiting 1s before returning an error.
+			dsn = fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=1000", *dbPath)
+		}
+	case "mysql":
+		driverName = "mysql"
+		if *dbDSN == "" {
+			log.Fatalf("--db-dsn must be set for --db-type=mysql")
+		}
+		dsn = *dbDSN
+	case "postgres":
+		driverName = "pgx"
+		if *dbDSN == "" {
+			log.Fatalf("--db-dsn must be set for --db-type=postgres")
+		}
+		dsn = *dbDSN
+		rebind = postgres.Rebind
+	default:
+		log.Fatalf("unsupported --db-type: %s. Must be one of 'sqlite', 'mysql', 'postgres'", *dbType)
+	}
+
+	db, err := sql.Open(driverName, dsn)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("failed to open database: %v", err)
 	}
 	defer db.Close()
 
 	// Create the table (if it doesn't already exist)
 	_, err = db.Exec(`
 			CREATE TABLE IF NOT EXISTS tlog (
-					origin TEXT PRIMARY KEY,
+					origin VARCHAR(255) PRIMARY KEY,
 					public_key TEXT NOT NULL, -- note verifier format
 					tree_size INTEGER NOT NULL,
 					tree_hash TEXT NOT NULL -- base64-encoded
@@ -160,7 +218,8 @@ func main() {
 		}
 
 		// Lookup log verifier, size and hash for the given origin
-		rows, err := db.Query("SELECT public_key, tree_size, tree_hash FROM tlog WHERE origin = ?", origin)
+		query := rebind("SELECT public_key, tree_size, tree_hash FROM tlog WHERE origin = ?")
+		rows, err := db.Query(query, origin)
 		if err != nil {
 			log.Printf("error querying database by origin: %v\n", err)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -182,7 +241,7 @@ func main() {
 		// If public key is empty, no row was selected, so the origin is unknown
 		if publicKey == "" {
 			// Return 404 for unknown log
-			log.Printf("origin %s not known by log\n", origin)
+			log.Printf("origin %s not known by witness\n", origin)
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -251,9 +310,18 @@ func main() {
 			return
 		}
 
+		// If the checkpoint is identical to what we've already seen, return the cosigned checkpoint.
+		// This is necessary since MySQL's RowsAffected behavior for no-op UPDATEs is different
+		// than other databases and won't register an update if the column values are identical.
+		if oldSize == newCp.Size && reflect.DeepEqual(treeHash, newCp.Hash) {
+			writeCosignatureResp(w, cosignedCheckpoint)
+			return
+		}
+
 		// Persist verified size and hash. Only update where tree_size matches the last verified size,
 		// to prevent concurrent requests from rolling back the witness state
-		if r, err := db.Exec("UPDATE tlog SET tree_size = ?, tree_hash = ? WHERE origin = ? AND tree_size = ?",
+		updateQuery := rebind("UPDATE tlog SET tree_size = ?, tree_hash = ? WHERE origin = ? AND tree_size = ?")
+		if r, err := db.Exec(updateQuery,
 			newCp.Size, base64.StdEncoding.EncodeToString(newCp.Hash), origin, oldSize); err != nil {
 			log.Printf("error updating stored checkpoint: %v\n", err)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -265,7 +333,8 @@ func main() {
 		} else if c != 1 {
 			// If the witness has not updated a row, then a concurrent request must fail.
 			// Return a 409 with the new verified size
-			rows, err := db.Query("SELECT tree_size FROM tlog WHERE origin = ?", origin)
+			selectQuery := rebind("SELECT tree_size FROM tlog WHERE origin = ?")
+			rows, err := db.Query(selectQuery, origin)
 			if err != nil {
 				log.Printf("error reading latest size: %v\n", err)
 				w.WriteHeader(http.StatusInternalServerError)
@@ -288,27 +357,7 @@ func main() {
 			return
 		}
 
-		// Split co-signed checkpoint to extract signatures
-		_, sigs, ok := bytes.Cut(cosignedCheckpoint, []byte("\n\n"))
-		if !ok {
-			log.Printf("error splitting cosigned checkpoint\n")
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		// Remove first signature line, which is the log signature
-		_, cosig, ok := bytes.Cut(sigs, []byte("\n"))
-		if !ok {
-			log.Printf("error splitting signatures on checkpoint\n")
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		// Return cosignature
-		if _, err = w.Write(cosig); err != nil {
-			log.Printf("/add-checkpoint: %v", err)
-			return
-		}
+		writeCosignatureResp(w, cosignedCheckpoint)
 	})
 
 	address := fmt.Sprintf("%s:%d", *host, *port)

@@ -6,8 +6,7 @@ COPY go.mod go.sum ./
 RUN go mod download && go mod verify
 
 COPY . .
-# cgo needed for go-sqlite3
-RUN CGO_ENABLED=1 go build -v -o ./witness-server ./cmd/witness-server
+RUN CGO_ENABLED=0 go build -v -o ./witness-server ./cmd/witness-server
 
 FROM golang:1.24.5@sha256:14fd8a55e59a560704e5fc44970b301d00d344e45d6b914dda228e09f359a088
 
