@@ -110,7 +110,10 @@ The signed checkpoint will have two signatures, one from the log and one from th
 
 Using the provided Docker Compose file, you can initialize and deploy the log and witness.
 
-You'll need to pick a storage backend. SQLite, PostgreSQL and MySQL are supported.
+For the log, only the [Tessera POSIX](https://github.com/transparency-dev/tessera/tree/main/storage/posix)
+backend is supported.
+
+You'll need to pick a storage backend for the witness. SQLite, PostgreSQL and MySQL are supported.
 
 ## SQLite
 
