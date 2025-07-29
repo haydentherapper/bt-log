@@ -12,11 +12,11 @@ permissions: {}
 # Defines two custom environment variables for the workflow. These are used for the Container registry domain, and a name for the Docker image that this workflow builds.
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: ${{ github.repository }}/witness-server
 
 # Prevent concurrent runs of this workflow, but do not cancel any in-progress
 concurrency:
-  group: "build-container"
+  group: "build-witness-container"
   cancel-in-progress: false
 
 # There is a single job in this workflow. It's configured to run on the latest available version of Ubuntu.
