@@ -1,4 +1,4 @@
-FROM golang:1.24.5@sha256:ef5b4be1f94b36c90385abd9b6b4f201723ae28e71acacb76d00687333c17282 AS build
+FROM golang:1.25.0@sha256:5502b0e56fca23feba76dbc5387ba59c593c02ccc2f0f7355871ea9a0852cebe AS build
 
 WORKDIR /build
 
@@ -8,7 +8,7 @@ RUN go mod download && go mod verify
 COPY . .
 RUN CGO_ENABLED=0 go build -v -o ./witness-add-key ./cmd/witness-add-key
 
-FROM golang:1.24.5@sha256:ef5b4be1f94b36c90385abd9b6b4f201723ae28e71acacb76d00687333c17282
+FROM golang:1.25.0@sha256:5502b0e56fca23feba76dbc5387ba59c593c02ccc2f0f7355871ea9a0852cebe
 
 WORKDIR /home/app
 
