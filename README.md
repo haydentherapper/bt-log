@@ -49,7 +49,7 @@ go run ./cmd/gen-key --origin=binarytransparency.log/example
 
 This will output private and public keys in Go's signed note format:
 
-```
+```shell
 cat private.key
 PRIVATE+KEY+binarytransparency.log/example+5de0f997+AXNNv9racVtMynH7oHIogZ4xS5sAIHBl47hlrcf6vsfu
 
@@ -75,12 +75,12 @@ This repository contains a lightweight witness that implements the
 [C2SP tlog-witness spec](https://github.com/C2SP/C2SP/blob/main/tlog-witness.md).
 
 To initialize the witness, create a SQLite database and a signing key. The database will store
-a log's verification key and origin, and the last size and tree hash the witness verified. 
+a log's verification key and origin, and the last size and tree hash the witness verified.
 
 The commands below will initialize the log signing key, create the database, initialize the database, add a row with the
 log's verification key, generate a witness signing key, and start the witness.
 
-```
+```shell
 go run ./cmd/gen-key --origin=binarytransparency.log/example
 
 sqlite3 -line witness.db '.database'
@@ -92,13 +92,13 @@ go run ./cmd/witness-server --database-path witness.db --private-key witness-pri
 
 Then, start the log. The log will verify cosigned checkpoints using the provided witness verification key.
 
-```
+```shell
 go run ./cmd/bt-log --storage-dir=/tmp/bt-log --private-key=private.key --public-key=public.key --purl-type=pypi --witness-url="http://localhost:8081" --witness-public-key=witness-public.key
 ```
 
 The checkpoint in the log's response will contain a co-signed checkpoint:
 
-```
+```shell
 curl -XPOST http://localhost:8080/add -d "{\"purl\":\"pkg:pypi/pkgname@1.2.3?checksum=sha256:5141b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be92\"}" -o bundle
 
 cat bundle | jq -r .checkpoint | base64 -d
@@ -106,7 +106,7 @@ cat bundle | jq -r .checkpoint | base64 -d
 
 The signed checkpoint will have two signatures, one from the log and one from the witness.
 
-# Docker Deployment
+## Docker Deployment
 
 Using the provided Docker Compose file, you can initialize and deploy the log and witness.
 
@@ -115,7 +115,7 @@ backend is supported.
 
 You'll need to pick a storage backend for the witness. SQLite, PostgreSQL and MySQL are supported.
 
-## SQLite
+### SQLite
 
 Run the following administrative jobs once to generate the log and witness keys and initialize the witness database:
 
@@ -137,7 +137,7 @@ To clean up containers and volumes:
 docker compose --profile sqlite down --remove-orphans --volumes
 ```
 
-## PostgreSQL
+### PostgreSQL
 
 Run the following administrative jobs once to generate the log and witness keys and initialize the witness database:
 
@@ -159,7 +159,7 @@ To clean up containers and volumes:
 docker compose --profile postgres down --remove-orphans --volumes
 ```
 
-## MySQL
+### MySQL
 
 Run the following administrative jobs once to generate the log and witness keys and initialize the witness database:
 
@@ -181,14 +181,14 @@ To clean up containers and volumes:
 docker compose --profile mysql down --remove-orphans --volumes
 ```
 
-# Upcoming Work
+## Upcoming Work
 
-- [ ] Change pURL to a custom representation
-- [ ] Lightweight monitor to demonstrate verifying ID-hash mapping is always 1-1 and alerting on publication
-  - [x] ID-hash mapping verification
-  - [x] Regex to match entries
-  - [x] Use slog for output
-  - [ ] Transform pURL to entry, request entry from registry, compare hash
-  - [x] Add e2e to GHA script
-- [ ] Add unit tests
-- [x] Containerize for e2e tests
+* [ ] Change pURL to a custom representation
+* [ ] Lightweight monitor to demonstrate verifying ID-hash mapping is always 1-1 and alerting on publication
+  * [x] ID-hash mapping verification
+  * [x] Regex to match entries
+  * [x] Use slog for output
+  * [ ] Transform pURL to entry, request entry from registry, compare hash
+  * [x] Add e2e to GHA script
+* [ ] Add unit tests
+* [x] Containerize for e2e tests
