@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"flag"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/haydentherapper/bt-log/internal/db/postgres"
 	tlog "github.com/transparency-dev/formats/log"
+	f_note "github.com/transparency-dev/formats/note"
 	"github.com/transparency-dev/merkle/proof"
 	"github.com/transparency-dev/merkle/rfc6962"
 	"golang.org/x/mod/sumdb/note"
@@ -130,30 +130,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to read private key file for %s: %v", *privKeyFile, err)
 	}
-	witnessSigner, err := note.NewSigner(string(privKey))
+	witnessSigner, err := f_note.NewSignerForCosignatureV1(string(privKey))
 	if err != nil {
 		log.Fatalf("failed to read signer %s: %v", *privKeyFile, err)
 	}
-
-	// C2SP requires a submission prefix for add-checkpoint
-	// Tessera expects this to be the witness public key hash
-	pubKey, err := os.ReadFile(*pubKeyFile)
-	if err != nil {
-		log.Fatalf("failed to read public key file for %s: %v", *pubKeyFile, err)
-	}
-	key64 := strings.SplitAfterN(string(pubKey), "+", 3)[2]
-	key, err := base64.StdEncoding.DecodeString(key64)
-	if err != nil {
-		log.Fatalf("failed to parse witness public key: %v", err)
-	}
-	h := sha256.Sum256(key)
 
 	// Request body must be:
 	// - an old size line,
 	// - zero or more consistency proof lines,
 	// - and an empty line,
 	// - followed by a checkpoint
-	http.HandleFunc(fmt.Sprintf("POST /%x/add-checkpoint", h), func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("POST /add-checkpoint", func(w http.ResponseWriter, r *http.Request) {
 		b, err := io.ReadAll(r.Body)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)

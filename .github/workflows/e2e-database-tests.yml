@@ -16,6 +16,7 @@ jobs:
   e2e-databse-tests:
     name: End-to-end test with ${{ matrix.db }} witness backend
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:

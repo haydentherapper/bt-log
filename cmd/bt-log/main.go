@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/haydentherapper/bt-log/internal/purl"
-	tlog "github.com/transparency-dev/formats/log"
+	f_log "github.com/transparency-dev/formats/log"
 	"github.com/transparency-dev/merkle/proof"
 	"github.com/transparency-dev/merkle/rfc6962"
 	"github.com/transparency-dev/tessera"
@@ -165,7 +165,7 @@ func main() {
 			_, _ = w.Write([]byte(err.Error()))
 			return
 		}
-		cp, _, _, err := tlog.ParseCheckpoint(rawCp, v.Name(), v)
+		cp, _, _, err := f_log.ParseCheckpoint(rawCp, v.Name(), v)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(err.Error()))
